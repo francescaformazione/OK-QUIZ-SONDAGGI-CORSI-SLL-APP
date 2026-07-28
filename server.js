@@ -9,7 +9,24 @@ const PORT = process.env.PORT || 3000;
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin123';
 
 app.use(express.json({ limit: '2mb' }));
+
+// I file della sottocartella "public" (se presente) vengono serviti normalmente.
+// In più, per tolleranza a upload che "spianano" le cartelle su GitHub, serviamo
+// anche i file statici dalla radice del progetto, bloccando però l'accesso diretto
+// ai file di backend/configurazione che non devono essere scaricabili.
+const ROOT_BLOCKLIST = new Set([
+  '/server.js', '/db.js', '/package.json', '/package-lock.json',
+  '/render.yaml', '/GUIDA_PUBBLICAZIONE.md', '/.gitignore',
+  '/esempio-test-sicurezza-30-domande.json', '/esempio-sondaggio-valutazione-corso.json'
+]);
+app.use((req, res, next) => {
+  if (ROOT_BLOCKLIST.has(req.path) || req.path.startsWith('/esempi/') || req.path.startsWith('/data/')) {
+    return res.status(404).send('Not found');
+  }
+  next();
+});
 app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.static(__dirname));
 
 // ---------- AUTH ADMIN ----------
 const adminTokens = new Map(); // token -> expiry timestamp
@@ -485,14 +502,22 @@ app.get('/api/surveys/:id/results.csv', requireAdmin, (req, res) => {
 // =========================================================
 // ROUTE PAGINE HTML (per link diretti /test/:id e /survey/:id)
 // =========================================================
+function sendPage(res, filename) {
+  const publicPath = path.join(__dirname, 'public', filename);
+  const rootPath = path.join(__dirname, filename);
+  res.sendFile(publicPath, (err) => {
+    if (err) res.sendFile(rootPath);
+  });
+}
+
 app.get('/test/:id', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'test.html'));
+  sendPage(res, 'test.html');
 });
 app.get('/survey/:id', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'survey.html'));
+  sendPage(res, 'survey.html');
 });
 app.get('/admin', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'admin.html'));
+  sendPage(res, 'admin.html');
 });
 
 app.listen(PORT, () => {
