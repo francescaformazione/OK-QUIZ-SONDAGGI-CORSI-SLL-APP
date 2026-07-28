@@ -191,6 +191,12 @@
         <button class="secondary" data-remove="${qId}" style="padding:4px 10px;">Rimuovi</button>
       </div>
       <input type="text" class="q-text" placeholder="Testo della domanda" />
+      ${kind === 'test' ? `
+        <label style="font-weight:400; display:flex; align-items:center; gap:6px; margin-bottom:10px;">
+          <input type="checkbox" class="q-multiselect" style="width:auto;" />
+          Consenti più risposte corrette per questa domanda
+        </label>
+      ` : ''}
       <div class="options-list"></div>
       <button class="secondary add-option" style="padding:6px 12px; font-size:0.85rem;">+ Aggiungi opzione</button>
     `;
@@ -210,7 +216,7 @@
     row.style.gap = '8px';
     row.style.marginBottom = '6px';
     row.innerHTML = kind === 'test'
-      ? `<input type="radio" name="correct_${qId}" class="opt-correct" />
+      ? `<input type="checkbox" class="opt-correct" style="width:auto;" />
          <input type="text" class="opt-text" placeholder="Testo opzione" style="margin:0;" />
          <button class="secondary remove-opt" style="padding:4px 8px;">✕</button>`
       : `<input type="text" class="opt-text" placeholder="Testo opzione" style="margin:0;" />
@@ -227,20 +233,24 @@
       if (!text) continue;
       const optionRows = block.querySelectorAll('.options-list > div');
       const options = [];
-      let correctIndex = -1;
+      const correctIndexes = [];
       let idx = 0;
       optionRows.forEach((row) => {
         const optText = row.querySelector('.opt-text').value.trim();
         if (!optText) return;
         options.push(optText);
         if (kind === 'test') {
-          const radio = row.querySelector('.opt-correct');
-          if (radio && radio.checked) correctIndex = idx;
+          const checkbox = row.querySelector('.opt-correct');
+          if (checkbox && checkbox.checked) correctIndexes.push(idx);
         }
         idx += 1;
       });
       const q = { text, options };
-      if (kind === 'test') q.correctIndex = correctIndex;
+      if (kind === 'test') {
+        const multiToggle = block.querySelector('.q-multiselect');
+        q._multiSelect = !!(multiToggle && multiToggle.checked);
+        q._correctIndexes = correctIndexes;
+      }
       questions.push(q);
     }
     return questions;
@@ -255,7 +265,18 @@
     if (questions.length === 0) { errorEl.textContent = 'Aggiungi almeno una domanda con opzioni.'; return; }
     for (const q of questions) {
       if (q.options.length < 2) { errorEl.textContent = `La domanda "${q.text}" ha meno di 2 opzioni.`; return; }
-      if (q.correctIndex < 0) { errorEl.textContent = `Seleziona la risposta corretta per la domanda "${q.text}".`; return; }
+      if (q._correctIndexes.length === 0) { errorEl.textContent = `Seleziona almeno una risposta corretta per la domanda "${q.text}".`; return; }
+      if (!q._multiSelect && q._correctIndexes.length > 1) {
+        errorEl.textContent = `Hai selezionato più di una risposta corretta per "${q.text}", ma non hai attivato "Consenti più risposte corrette". Attivalo oppure correggi la selezione.`;
+        return;
+      }
+      if (q._multiSelect) {
+        q.correctIndexes = q._correctIndexes;
+      } else {
+        q.correctIndex = q._correctIndexes[0];
+      }
+      delete q._correctIndexes;
+      delete q._multiSelect;
     }
     errorEl.textContent = '';
     const res = await apiFetch('/api/tests', { method: 'POST', body: JSON.stringify({ title, passThreshold, questions }) });
@@ -356,9 +377,10 @@
       ${test.questions.map((q, idx) => `
         <div class="question-block">
           <div class="question-title">${idx + 1}. ${escapeHtml(q.text)}</div>
+          ${q.multiSelect ? '<div class="muted" style="margin-bottom:6px;">(più risposte corrette possibili)</div>' : ''}
           ${q.options.map((o, i) => `
-            <label class="option-row" data-qid="${q.id}" data-oid="${o.id}">
-              <input type="radio" name="manual_q_${q.id}" value="${o.id}" />
+            <label class="option-row" data-qid="${q.id}" data-oid="${o.id}" data-multi="${q.multiSelect ? '1' : '0'}">
+              <input type="${q.multiSelect ? 'checkbox' : 'radio'}" name="manual_q_${q.id}" value="${o.id}" />
               <span>${String.fromCharCode(65 + i)}) ${escapeHtml(o.text)}</span>
             </label>
           `).join('')}
@@ -376,10 +398,20 @@
       row.addEventListener('click', () => {
         const qid = row.getAttribute('data-qid');
         const oid = row.getAttribute('data-oid');
-        manualAnswers[qid] = oid;
-        row.querySelector('input').checked = true;
-        formDiv.querySelectorAll(`.option-row[data-qid="${qid}"]`).forEach((r) => r.classList.remove('selected'));
-        row.classList.add('selected');
+        const isMulti = row.getAttribute('data-multi') === '1';
+        const input = row.querySelector('input');
+
+        if (isMulti) {
+          input.checked = !input.checked;
+          const current = Array.isArray(manualAnswers[qid]) ? manualAnswers[qid] : [];
+          manualAnswers[qid] = input.checked ? [...current, oid] : current.filter((id) => id !== oid);
+          row.classList.toggle('selected', input.checked);
+        } else {
+          manualAnswers[qid] = oid;
+          input.checked = true;
+          formDiv.querySelectorAll(`.option-row[data-qid="${qid}"]`).forEach((r) => r.classList.remove('selected'));
+          row.classList.add('selected');
+        }
       });
     });
 
