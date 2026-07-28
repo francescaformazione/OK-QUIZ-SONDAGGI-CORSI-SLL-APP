@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: quiz-sondaggi-app
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: ADMIN_PASSWORD
+        sync: false
+    disk:
+      name: quiz-data
+      mountPath: /opt/render/project/src/data
+      sizeGB: 1

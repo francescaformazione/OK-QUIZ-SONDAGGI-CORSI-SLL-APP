@@ -1,0 +1,10 @@
+{
+  "title": "Valutazione qualità del corso",
+  "questions": [
+    {"text":"Come valuti la chiarezza dei contenuti del corso?","options":["Ottimo","Buono","Sufficiente","Scarso"]},
+    {"text":"Come valuti la competenza del docente/formatore?","options":["Ottimo","Buono","Sufficiente","Scarso"]},
+    {"text":"Il materiale didattico fornito è stato utile?","options":["Molto utile","Utile","Poco utile","Non utile"]},
+    {"text":"La durata del corso è stata adeguata?","options":["Troppo lunga","Adeguata","Troppo breve"]},
+    {"text":"Consiglieresti questo corso ad altri colleghi?","options":["Sì, sicuramente","Probabilmente sì","Probabilmente no","No"]}
+  ]
+}
