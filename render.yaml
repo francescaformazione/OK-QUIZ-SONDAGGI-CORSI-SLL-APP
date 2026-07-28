@@ -8,7 +8,3 @@ services:
     envVars:
       - key: ADMIN_PASSWORD
         sync: false
-    disk:
-      name: quiz-data
-      mountPath: /opt/render/project/src/data
-      sizeGB: 1
