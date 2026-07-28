@@ -58,9 +58,10 @@
     const questionsHtml = testData.questions.map((q, idx) => `
       <div class="question-block">
         <div class="question-title">${idx + 1}. ${escapeHtml(q.text)}</div>
+        ${q.multiSelect ? '<div class="muted" style="margin-bottom:8px;">(sono possibili più risposte corrette)</div>' : ''}
         ${q.options.map((o) => `
-          <label class="option-row" data-qid="${q.id}" data-oid="${o.id}">
-            <input type="radio" name="q_${q.id}" value="${o.id}" />
+          <label class="option-row" data-qid="${q.id}" data-oid="${o.id}" data-multi="${q.multiSelect ? '1' : '0'}">
+            <input type="${q.multiSelect ? 'checkbox' : 'radio'}" name="q_${q.id}" value="${o.id}" />
             <span>${escapeHtml(o.text)}</span>
           </label>
         `).join('')}
@@ -81,10 +82,24 @@
       row.addEventListener('click', () => {
         const qid = row.getAttribute('data-qid');
         const oid = row.getAttribute('data-oid');
-        currentAnswers[qid] = oid;
-        row.querySelector('input').checked = true;
-        app.querySelectorAll(`.option-row[data-qid="${qid}"]`).forEach((r) => r.classList.remove('selected'));
-        row.classList.add('selected');
+        const isMulti = row.getAttribute('data-multi') === '1';
+        const input = row.querySelector('input');
+
+        if (isMulti) {
+          input.checked = !input.checked;
+          const current = Array.isArray(currentAnswers[qid]) ? currentAnswers[qid] : [];
+          if (input.checked) {
+            currentAnswers[qid] = [...current, oid];
+          } else {
+            currentAnswers[qid] = current.filter((id) => id !== oid);
+          }
+          row.classList.toggle('selected', input.checked);
+        } else {
+          currentAnswers[qid] = oid;
+          input.checked = true;
+          app.querySelectorAll(`.option-row[data-qid="${qid}"]`).forEach((r) => r.classList.remove('selected'));
+          row.classList.add('selected');
+        }
       });
     });
 
@@ -93,7 +108,7 @@
 
   async function submitTest() {
     const total = testData.questions.length;
-    const answered = Object.keys(currentAnswers).length;
+    const answered = Object.values(currentAnswers).filter((a) => (Array.isArray(a) ? a.length > 0 : !!a)).length;
     if (answered < total) {
       const ok = confirm(`Hai risposto a ${answered} domande su ${total}. Vuoi inviare comunque?`);
       if (!ok) return;
