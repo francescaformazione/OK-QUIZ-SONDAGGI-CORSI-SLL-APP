@@ -85,15 +85,29 @@ app.post('/api/tests', requireAdmin, async (req, res) => {
     if (!q.text || !Array.isArray(q.options) || q.options.length < 2) {
       return res.status(400).json({ error: 'Ogni domanda deve avere un testo e almeno 2 opzioni' });
     }
-    if (typeof q.correctIndex !== 'number' || q.correctIndex < 0 || q.correctIndex >= q.options.length) {
-      return res.status(400).json({ error: 'Ogni domanda deve avere una risposta corretta valida' });
-    }
     const optionObjs = q.options.map((optText) => ({ id: crypto.randomUUID(), text: String(optText) }));
+
+    // Una domanda può avere una sola risposta corretta (correctIndex) oppure
+    // più risposte corrette contemporaneamente (correctIndexes, es. test HACCP)
+    let correctIndexes;
+    if (Array.isArray(q.correctIndexes)) {
+      correctIndexes = q.correctIndexes;
+    } else if (typeof q.correctIndex === 'number') {
+      correctIndexes = [q.correctIndex];
+    } else {
+      return res.status(400).json({ error: 'Ogni domanda deve avere almeno una risposta corretta valida' });
+    }
+    const validIndexes = correctIndexes.every((idx) => typeof idx === 'number' && idx >= 0 && idx < optionObjs.length);
+    if (correctIndexes.length === 0 || !validIndexes) {
+      return res.status(400).json({ error: 'Ogni domanda deve avere almeno una risposta corretta valida' });
+    }
+
     builtQuestions.push({
       id: crypto.randomUUID(),
       text: String(q.text),
       options: optionObjs,
-      correctOptionId: optionObjs[q.correctIndex].id
+      multiSelect: correctIndexes.length > 1,
+      correctOptionIds: correctIndexes.map((idx) => optionObjs[idx].id)
     });
   }
 
@@ -176,6 +190,7 @@ app.get('/api/tests/:id/public', (req, res) => {
     questions: test.questions.map((q) => ({
       id: q.id,
       text: q.text,
+      multiSelect: !!q.multiSelect,
       options: q.options.map((o) => ({ id: o.id, text: o.text }))
     }))
   });
@@ -212,6 +227,10 @@ app.get('/api/tests/:id/pdf', (req, res) => {
 
   test.questions.forEach((q, idx) => {
     doc.fontSize(11).font('Helvetica-Bold').text(`${idx + 1}. ${q.text}`);
+    if (q.multiSelect) {
+      doc.fontSize(9).font('Helvetica-Oblique').fillColor('#555555').text('(sono possibili più risposte corrette)');
+      doc.fillColor('black');
+    }
     doc.font('Helvetica').fontSize(10.5);
     q.options.forEach((o, i) => {
       const letter = String.fromCharCode(65 + i);
@@ -224,10 +243,26 @@ app.get('/api/tests/:id/pdf', (req, res) => {
 });
 
 
+function isAnswerCorrect(question, givenAnswer) {
+  const correctSet = new Set(question.correctOptionIds);
+  if (question.multiSelect) {
+    const given = Array.isArray(givenAnswer) ? givenAnswer : (givenAnswer ? [givenAnswer] : []);
+    const givenSet = new Set(given);
+    if (givenSet.size !== correctSet.size) return false;
+    for (const id of givenSet) {
+      if (!correctSet.has(id)) return false;
+    }
+    return true;
+  }
+  // domanda a risposta singola: l'answer inviato è un singolo id (stringa)
+  const given = Array.isArray(givenAnswer) ? givenAnswer[0] : givenAnswer;
+  return !!given && correctSet.has(given);
+}
+
 function scoreSubmission(test, nome, cognome, answers) {
   let correctCount = 0;
   test.questions.forEach((q) => {
-    if (answers[q.id] && answers[q.id] === q.correctOptionId) correctCount += 1;
+    if (isAnswerCorrect(q, answers[q.id])) correctCount += 1;
   });
   const total = test.questions.length;
   const percentage = pct(correctCount, total);
