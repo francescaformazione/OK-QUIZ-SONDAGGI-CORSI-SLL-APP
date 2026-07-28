@@ -34,7 +34,6 @@ function writeDbRaw(data) {
   fs.writeFileSync(DB_PATH, JSON.stringify(data, null, 2));
 }
 
-// Coda semplice per serializzare le scritture concorrenti
 let queue = Promise.resolve();
 
 function transact(mutatorFn) {
