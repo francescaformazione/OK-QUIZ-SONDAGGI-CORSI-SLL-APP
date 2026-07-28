@@ -1,34 +1,61 @@
 (function () {
-  const surveyId = window.location.pathname.split('/').pop();
+  const testId = window.location.pathname.split('/').pop();
   const app = document.getElementById('app');
   const pageTitle = document.getElementById('page-title');
 
-  let surveyData = null;
+  let testData = null;
   let currentAnswers = {};
+  let participant = { nome: '', cognome: '' };
 
   async function load() {
     app.innerHTML = '<p class="muted">Caricamento...</p>';
     try {
-      const res = await fetch(`/api/surveys/${surveyId}/public`);
+      const res = await fetch(`/api/tests/${testId}/public`);
       const data = await res.json();
       if (!res.ok) {
-        app.innerHTML = `<div class="card"><p class="error-msg">${data.error || 'Sondaggio non trovato'}</p></div>`;
+        app.innerHTML = `<div class="card"><p class="error-msg">${data.error || 'Test non trovato'}</p></div>`;
         return;
       }
-      surveyData = data;
-      pageTitle.textContent = data.title || 'Sondaggio';
+      testData = data;
+      pageTitle.textContent = data.title || 'Test';
       if (data.status === 'closed') {
-        app.innerHTML = `<div class="card"><h2>${data.title}</h2><p class="muted">Questo sondaggio è chiuso.</p></div>`;
+        app.innerHTML = `<div class="card"><h2>${data.title}</h2><p class="muted">Questo test è chiuso e non accetta più risposte.</p></div>`;
         return;
       }
-      renderQuestions();
+      renderRegisterForm();
     } catch (e) {
       app.innerHTML = '<div class="card"><p class="error-msg">Errore di connessione. Riprova.</p></div>';
     }
   }
 
+  function renderRegisterForm() {
+    app.innerHTML = `
+      <div class="card">
+        <h2>${testData.title}</h2>
+        <p class="muted">${testData.questions.length} domande. Inserisci i tuoi dati per iniziare.</p>
+        <label>Nome</label>
+        <input type="text" id="nome" placeholder="Nome" />
+        <label>Cognome</label>
+        <input type="text" id="cognome" placeholder="Cognome" />
+        <div id="register-error" class="error-msg"></div>
+        <button id="start-btn">Inizia il test</button>
+      </div>
+    `;
+    document.getElementById('start-btn').addEventListener('click', () => {
+      const nome = document.getElementById('nome').value.trim();
+      const cognome = document.getElementById('cognome').value.trim();
+      if (!nome || !cognome) {
+        document.getElementById('register-error').textContent = 'Inserisci nome e cognome per continuare.';
+        return;
+      }
+      participant = { nome, cognome };
+      renderQuestions();
+    });
+  }
+
   function renderQuestions() {
-    const questionsHtml = surveyData.questions.map((q, idx) => `
+    currentAnswers = {};
+    const questionsHtml = testData.questions.map((q, idx) => `
       <div class="question-block">
         <div class="question-title">${idx + 1}. ${escapeHtml(q.text)}</div>
         ${q.options.map((o) => `
@@ -42,8 +69,8 @@
 
     app.innerHTML = `
       <div class="card">
-        <h2>${surveyData.title}</h2>
-        <p class="muted">Sondaggio anonimo: le tue risposte non saranno associate al tuo nome.</p>
+        <h2>${testData.title}</h2>
+        <p class="muted">Ciao ${escapeHtml(participant.nome)}, rispondi a tutte le domande.</p>
         ${questionsHtml}
         <div id="submit-error" class="error-msg"></div>
         <button id="submit-btn">Invia risposte</button>
@@ -61,11 +88,11 @@
       });
     });
 
-    document.getElementById('submit-btn').addEventListener('click', submitSurvey);
+    document.getElementById('submit-btn').addEventListener('click', submitTest);
   }
 
-  async function submitSurvey() {
-    const total = surveyData.questions.length;
+  async function submitTest() {
+    const total = testData.questions.length;
     const answered = Object.keys(currentAnswers).length;
     if (answered < total) {
       const ok = confirm(`Hai risposto a ${answered} domande su ${total}. Vuoi inviare comunque?`);
@@ -75,10 +102,10 @@
     btn.disabled = true;
     btn.textContent = 'Invio in corso...';
     try {
-      const res = await fetch(`/api/surveys/${surveyId}/submit`, {
+      const res = await fetch(`/api/tests/${testId}/submit`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ answers: currentAnswers })
+        body: JSON.stringify({ nome: participant.nome, cognome: participant.cognome, answers: currentAnswers })
       });
       const data = await res.json();
       if (!res.ok) {
@@ -87,19 +114,26 @@
         btn.textContent = 'Invia risposte';
         return;
       }
-      app.innerHTML = `
-        <div class="card">
-          <div class="result-score">
-            <p>✓</p>
-            <p>Grazie per aver completato il sondaggio!</p>
-          </div>
-        </div>
-      `;
+      renderResult(data);
     } catch (e) {
       document.getElementById('submit-error').textContent = 'Errore di connessione. Riprova.';
       btn.disabled = false;
       btn.textContent = 'Invia risposte';
     }
+  }
+
+  function renderResult(result) {
+    const passed = result.passed;
+    app.innerHTML = `
+      <div class="card">
+        <div class="result-score ${passed ? '' : 'fail'}">
+          <div class="pct">${result.percentage}%</div>
+          <p>${result.correctCount} risposte corrette su ${result.total}</p>
+          <p class="tag ${passed ? 'open' : 'closed'}">${passed ? 'Superato' : 'Non superato'}</p>
+        </div>
+        <p class="muted" style="text-align:center">Grazie ${escapeHtml(participant.nome)}, il risultato è stato registrato.</p>
+      </div>
+    `;
   }
 
   function escapeHtml(str) {
