@@ -315,6 +315,7 @@
           <button class="secondary" id="toggle-status-btn">${test.status === 'open' ? 'Chiudi test' : 'Riapri test'}</button>
           <a class="btn secondary" href="/api/tests/${testId}/pdf" target="_blank">Scarica versione PDF (per chi non ha accesso online)</a>
           <a class="btn secondary" href="/api/tests/${testId}/results.csv?token=${token}" target="_blank" id="csv-link">Scarica report CSV</a>
+          <a class="btn secondary" href="/api/tests/${testId}/results-detail.csv?token=${token}" target="_blank">Scarica dettaglio risposte (CSV)</a>
           <button class="danger" id="delete-test-btn">Elimina test</button>
           <button class="secondary" id="back-btn">Torna alla lista</button>
         </div>
