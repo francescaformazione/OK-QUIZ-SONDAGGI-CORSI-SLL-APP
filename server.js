@@ -267,6 +267,16 @@ function scoreSubmission(test, nome, cognome, answers) {
   const total = test.questions.length;
   const percentage = pct(correctCount, total);
   const passed = percentage >= (test.passThreshold ?? 60);
+
+  // Registra le risposte date a ogni domanda (elenco di id opzione, solo id validi)
+  const givenAnswers = {};
+  test.questions.forEach((q) => {
+    const raw = answers[q.id];
+    const list = Array.isArray(raw) ? raw : (raw ? [raw] : []);
+    const validIds = new Set(q.options.map((o) => o.id));
+    givenAnswers[q.id] = list.filter((id) => validIds.has(id));
+  });
+
   return {
     id: crypto.randomUUID(),
     testId: test.id,
@@ -276,6 +286,7 @@ function scoreSubmission(test, nome, cognome, answers) {
     total,
     percentage,
     passed,
+    answers: givenAnswers,
     submittedAt: new Date().toISOString()
   };
 }
@@ -363,6 +374,70 @@ app.get('/api/tests/:id/results.csv', requireAdmin, (req, res) => {
   });
 
   const filename = `risultati_${test.title.replace(/[^a-z0-9]+/gi, '_')}.csv`;
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+  res.send('\uFEFF' + rows.join('\n'));
+});
+
+// Report di dettaglio: risposta data da ciascun partecipante a ciascuna domanda
+app.get('/api/tests/:id/results-detail.csv', requireAdmin, (req, res) => {
+  const data = readDb();
+  const test = data.tests.find((t) => t.id === req.params.id);
+  if (!test) return res.status(404).send('Test non trovato');
+  const subs = data.testSubmissions
+    .filter((s) => s.testId === req.params.id)
+    .sort((a, b) => new Date(a.submittedAt) - new Date(b.submittedAt));
+
+  const letter = (q, optionId) => String.fromCharCode(65 + q.options.findIndex((o) => o.id === optionId));
+  const lettersOf = (q, ids) => ids.map((id) => letter(q, id)).sort().join('+');
+
+  const header = ['Nome', 'Cognome', 'Risposte corrette', 'Percentuale', 'Superato', 'Data invio']
+    .concat(test.questions.map((q, i) => `D${i + 1}`));
+  const rows = [header.join(';')];
+
+  // Riga con le risposte corrette, per confronto immediato
+  rows.push(
+    ['RISPOSTA CORRETTA', '', '', '', '', '']
+      .concat(test.questions.map((q) => lettersOf(q, q.correctOptionIds)))
+      .join(';')
+  );
+
+  subs.forEach((s) => {
+    const base = [
+      csvEscape(s.nome),
+      csvEscape(s.cognome),
+      `${s.correctCount}/${s.total}`,
+      s.percentage + '%',
+      s.passed ? 'SI' : 'NO',
+      new Date(s.submittedAt).toLocaleString('it-IT')
+    ];
+    let cells;
+    if (!s.answers) {
+      // consegne registrate prima dell'introduzione del dettaglio risposte
+      cells = test.questions.map(() => 'n.d.');
+    } else {
+      cells = test.questions.map((q) => {
+        const given = s.answers[q.id] || [];
+        const ok = isAnswerCorrect(q, q.multiSelect ? given : given[0]);
+        const shown = given.length ? lettersOf(q, given) : 'nessuna';
+        return `${shown} ${ok ? '✓' : '✗'}`;
+      });
+    }
+    rows.push(base.concat(cells).join(';'));
+  });
+
+  // Legenda: testo di ogni domanda e delle relative risposte
+  rows.push('');
+  rows.push('LEGENDA DOMANDE');
+  test.questions.forEach((q, i) => {
+    rows.push(`${csvEscape(`D${i + 1}`)};${csvEscape(q.text)}`);
+    q.options.forEach((o, j) => {
+      const isCorrect = q.correctOptionIds.includes(o.id);
+      rows.push(`;${csvEscape(String.fromCharCode(65 + j) + ') ' + o.text + (isCorrect ? '  [CORRETTA]' : ''))}`);
+    });
+  });
+
+  const filename = `dettaglio_risposte_${test.title.replace(/[^a-z0-9]+/gi, '_')}.csv`;
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');
   res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
   res.send('\uFEFF' + rows.join('\n'));
